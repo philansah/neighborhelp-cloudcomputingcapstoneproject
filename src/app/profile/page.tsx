@@ -96,19 +96,49 @@ export default function ProfilePage() {
 
     try {
       const file = files[0];
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const uploadRes = await fetch('/api/media/upload', {
+      
+      const urlRes = await fetch('/api/media/upload-url', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
       });
+      const urlData = await urlRes.json();
 
-      const data = await uploadRes.json();
-      if (data.url) {
-        setProofUrl(data.url);
+      let uploadedUrl = '';
+      if (urlData.presignedUrl && !urlData.presignedUrl.includes('MOCK_CREDENTIALS')) {
+        // Direct S3 upload from browser
+        const uploadRes = await fetch(urlData.presignedUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type,
+          },
+          body: file,
+        });
+        if (!uploadRes.ok) {
+          throw new Error('S3 upload failed');
+        }
+        uploadedUrl = urlData.publicUrl;
+      } else {
+        // Fallback to local upload
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const uploadRes = await fetch('/api/media/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await uploadRes.json();
+        if (data.url) {
+          uploadedUrl = data.url;
+        }
       }
-    } catch {
+
+      if (uploadedUrl) {
+        setProofUrl(uploadedUrl);
+      }
+    } catch (err: any) {
+      console.error(err);
       setProofError('Failed to upload proof document.');
     } finally {
       setUploadingProof(false);

@@ -44,26 +44,49 @@ function CreatePostForm() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
-        await fetch('/api/media/upload-url', {
+        const urlRes = await fetch('/api/media/upload-url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filename: file.name, contentType: file.type }),
         });
+        const urlData = await urlRes.json();
 
-        const formData = new FormData();
-        formData.append('file', file);
+        let uploadedUrl = '';
+        if (urlData.presignedUrl && !urlData.presignedUrl.includes('MOCK_CREDENTIALS')) {
+          // Direct S3 upload from browser
+          const uploadRes = await fetch(urlData.presignedUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': file.type,
+            },
+            body: file,
+          });
+          if (!uploadRes.ok) {
+            throw new Error('S3 upload failed');
+          }
+          uploadedUrl = urlData.publicUrl;
+        } else {
+          // Fallback to local upload
+          const formData = new FormData();
+          formData.append('file', file);
 
-        const uploadRes = await fetch('/api/media/upload', {
-          method: 'POST',
-          body: formData,
-        });
+          const uploadRes = await fetch('/api/media/upload', {
+            method: 'POST',
+            body: formData,
+          });
 
-        const data = await uploadRes.json();
-        if (data.url) {
-          setPhotos((prev) => [...prev, data.url]);
+          const data = await uploadRes.json();
+          if (data.url) {
+            uploadedUrl = data.url;
+          }
+        }
+
+        if (uploadedUrl) {
+          setPhotos((prev) => [...prev, uploadedUrl]);
         }
       }
-    } catch {
+    } catch (e) {
+      console.error(e);
       setError('Failed to upload photos. Please try again.');
     } finally {
       setUploading(false);
